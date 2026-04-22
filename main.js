@@ -21,6 +21,11 @@
     chartSecondarySeries: "",
     chartTransform: "level",
     chartCountries: ["KZ", "UZ"],
+    ratesPreset: "g7",
+    ratesFamily: "all",
+    ratesData: new Map(),
+    ratesPrevious: new Map(),
+    ratesTimer: null,
     loaded: new Map(),
     loading: new Map(),
     lastWarning: "",
@@ -605,6 +610,99 @@
     "A production deployment can add a scheduled CSV/JSON snapshot published into the repository, or a licensed client-side market API."
   ];
 
+  const RATES_MARKETS = {
+    US: {
+      label: "United States",
+      short: "US",
+      currency: "USD",
+      series: { "2Y": "DGS2", "5Y": "DGS5", "10Y": "DGS10", "30Y": "DGS30", "5Y_BE": "T5YIE", "10Y_BE": "T10YIE" },
+      source: "FRED daily U.S. Treasury / breakeven series"
+    },
+    CA: {
+      label: "Canada",
+      short: "Canada",
+      currency: "CAD",
+      series: { "10Y": "IRLTLT01CAM156N" },
+      source: "FRED/OECD monthly long-term government bond yield"
+    },
+    DE: {
+      label: "Germany",
+      short: "Germany",
+      currency: "EUR",
+      series: { "10Y": "IRLTLT01DEM156N" },
+      source: "FRED/OECD monthly long-term government bond yield"
+    },
+    FR: {
+      label: "France",
+      short: "France",
+      currency: "EUR",
+      series: { "10Y": "IRLTLT01FRM156N" },
+      source: "FRED/OECD monthly long-term government bond yield"
+    },
+    IT: {
+      label: "Italy",
+      short: "Italy",
+      currency: "EUR",
+      series: { "10Y": "IRLTLT01ITM156N" },
+      source: "FRED/OECD monthly long-term government bond yield"
+    },
+    ES: {
+      label: "Spain",
+      short: "Spain",
+      currency: "EUR",
+      series: { "10Y": "IRLTLT01ESM156N" },
+      source: "FRED/OECD monthly long-term government bond yield"
+    },
+    GB: {
+      label: "United Kingdom",
+      short: "UK",
+      currency: "GBP",
+      series: { "10Y": "IRLTLT01GBM156N" },
+      source: "FRED/OECD monthly long-term government bond yield"
+    },
+    JP: {
+      label: "Japan",
+      short: "Japan",
+      currency: "JPY",
+      series: { "10Y": "IRLTLT01JPM156N" },
+      source: "FRED/OECD monthly long-term government bond yield"
+    }
+  };
+
+  const RATES_PRESETS = {
+    g7: ["US", "CA", "DE", "FR", "IT", "GB", "JP"],
+    europe: ["DE", "FR", "IT", "ES", "GB"],
+    core: ["US", "DE", "GB", "JP"]
+  };
+
+  const RATES_ROWS = [
+    { type: "section", family: "sovereign", label: "Sovereign Debt" },
+    { type: "rate", family: "sovereign", label: "2Y", key: "2Y", unit: "%", sourceKind: "yield" },
+    { type: "rate", family: "sovereign", label: "5Y", key: "5Y", unit: "%", sourceKind: "yield" },
+    { type: "rate", family: "sovereign", label: "10Y", key: "10Y", unit: "%", sourceKind: "yield" },
+    { type: "rate", family: "sovereign", label: "30Y", key: "30Y", unit: "%", sourceKind: "yield" },
+    { type: "section", family: "inflation", label: "Inflation Bonds" },
+    { type: "rate", family: "inflation", label: "5Y Breakeven", key: "5Y_BE", unit: "%", sourceKind: "yield" },
+    { type: "rate", family: "inflation", label: "10Y Breakeven", key: "10Y_BE", unit: "%", sourceKind: "yield" },
+    { type: "section", family: "curves", label: "Cash Curves" },
+    { type: "spread", family: "curves", label: "2Y-10Y", legs: ["10Y", "2Y"], unit: "bp" },
+    { type: "spread", family: "curves", label: "5Y-10Y", legs: ["10Y", "5Y"], unit: "bp" },
+    { type: "spread", family: "curves", label: "10Y-30Y", legs: ["30Y", "10Y"], unit: "bp" },
+    { type: "section", family: "futures", label: "Bond Futures" },
+    { type: "nofeed", family: "futures", label: "Front Contract", reason: "Licensed futures feed required" },
+    { type: "nofeed", family: "futures", label: "CTD Implied Yield", reason: "Licensed futures analytics required" },
+    { type: "section", family: "swaps", label: "Spot Swaps" },
+    { type: "nofeed", family: "swaps", label: "2Y Swap", reason: "Swap feed required" },
+    { type: "nofeed", family: "swaps", label: "5Y Swap", reason: "Swap feed required" },
+    { type: "nofeed", family: "swaps", label: "10Y Swap", reason: "Swap feed required" },
+    { type: "nofeed", family: "swaps", label: "30Y Swap", reason: "Swap feed required" },
+    { type: "section", family: "swaps", label: "Swap Curves" },
+    { type: "nofeed", family: "swaps", label: "2Y-10Y Swap", reason: "Swap curve feed required" },
+    { type: "nofeed", family: "swaps", label: "5Y-10Y Swap", reason: "Swap curve feed required" },
+    { type: "section", family: "fx", label: "FX / Rates Overlay" },
+    { type: "nofeed", family: "fx", label: "FX-Rates Sensitivity", reason: "FX market feed required" }
+  ];
+
   const screenMeta = {
     MONITOR: ["MONITOR", "Global Monitor", "Search, monitor, compare and route the next analytical step from a single dense board."],
     CTRY: ["CTRY", "Country Monitor", "What changed, why it matters, pressure points, analogues, markets, and handoff."],
@@ -613,6 +711,7 @@
     EXTL: ["EXTL", "External Vulnerability", "External balances, reserves, debt service pressure and FX transmission."],
     LIQD: ["LIQD", "Liquidity And Money", "Money, credit, real rates and the risk-premium impulse."],
     INFL: ["INFL", "Inflation And Policy", "Inflation pressure, real rates, labour slack and duration risk."],
+    RATES: ["RATES", "Global Rates Monitor", "Dense rates matrix with official/public proxies where available and no-feed cells marked explicitly."],
     CHRT: ["CHRT", "Chart Builder", "Multi-country, multi-transform charting with annotations and export."],
     ALRT: ["ALRT", "Saved Monitors And Local Alerts", "Static-safe watchlists stored locally and evaluated when the page is open."],
     RLS: ["RLS", "Release And Freshness Board", "Per-series source, frequency, latest observation, source update and adapter status."],
@@ -1157,6 +1256,7 @@
       if (active === "EXTL") await renderDomain("external");
       if (active === "LIQD") await renderDomain("liquidity");
       if (active === "INFL") await renderDomain("inflation");
+      if (active === "RATES") await renderRatesMonitor();
       if (active === "CHRT") await renderChartModule();
       if (active === "ALRT") await renderAlerts();
       if (active === "RLS") await renderReleaseBoard();
@@ -1654,6 +1754,231 @@
     ];
   }
 
+  async function renderRatesMonitor() {
+    syncRatesControls();
+    const countries = RATES_PRESETS[state.ratesPreset] || RATES_PRESETS.g7;
+    setText(el("rates-refresh-stamp"), "refreshing");
+    el("rates-live-light")?.classList.add("active");
+    await loadRatesData(countries);
+    renderRatesBoard(countries);
+    setText(el("rates-refresh-stamp"), `last refresh ${formatTerminalTime(new Date())}`);
+    setText(el("rates-footnote"), "N/F = no static public feed configured. Swap/futures/FX feeds need a licensed market source or a published static snapshot.");
+    window.setTimeout(() => el("rates-live-light")?.classList.remove("active"), 900);
+    if (!state.ratesTimer) {
+      state.ratesTimer = window.setInterval(() => {
+        if (state.activeModule === "RATES") renderRatesMonitor();
+      }, 60000);
+    }
+  }
+
+  function syncRatesControls() {
+    if (el("rates-preset-select")) el("rates-preset-select").value = state.ratesPreset;
+    if (el("rates-family-select")) el("rates-family-select").value = state.ratesFamily;
+  }
+
+  async function loadRatesData(countries) {
+    const jobs = [];
+    countries.forEach((code) => {
+      const market = RATES_MARKETS[code];
+      Object.entries(market.series || {}).forEach(([key, seriesId]) => {
+        jobs.push({ code, key, seriesId });
+      });
+    });
+    await Promise.all(jobs.map(async (job) => {
+      const result = await fetchFredRate(job.seriesId);
+      state.ratesData.set(`${job.code}.${job.key}`, {
+        ...result,
+        country: job.code,
+        key: job.key,
+        source: RATES_MARKETS[job.code].source,
+        seriesId: job.seriesId
+      });
+    }));
+  }
+
+  async function fetchFredRate(seriesId) {
+    const cacheKey = `${STORAGE_PREFIX}rate_${seriesId}`;
+    const ttl = 10 * 60 * 1000;
+    try {
+      const cached = JSON.parse(localStorage.getItem(cacheKey) || "null");
+      if (cached && cached.timestamp && Date.now() - cached.timestamp < ttl) return cached.payload;
+    } catch (err) {}
+
+    const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(seriesId)}`;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const text = await response.text();
+      const rows = text.trim().split(/\r?\n/).slice(1)
+        .map((line) => {
+          const [date, value] = line.split(",");
+          const num = Number(value);
+          return Number.isFinite(num) ? { date, value: num } : null;
+        })
+        .filter(Boolean);
+      const latest = rows[rows.length - 1];
+      const prev = rows[rows.length - 2] || null;
+      const payload = latest ? {
+        ok: true,
+        value: latest.value,
+        previous: prev?.value ?? null,
+        changeBp: prev ? (latest.value - prev.value) * 100 : null,
+        date: latest.date,
+        prevDate: prev?.date || "",
+        status: "FRED"
+      } : { ok: false, status: "N/F", warning: "No observation returned" };
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), payload }));
+      } catch (err) {}
+      return payload;
+    } catch (err) {
+      return { ok: false, status: "N/F", warning: "FRED CSV fetch unavailable" };
+    }
+  }
+
+  function renderRatesBoard(countries) {
+    setHtml(el("rates-board-head"), `
+      <tr>
+        <th class="rates-row-label" rowspan="2">Curve / Product</th>
+        ${countries.map((code) => `<th colspan="2">${escapeHtml(RATES_MARKETS[code].short)}</th>`).join("")}
+      </tr>
+      <tr>
+        ${countries.map(() => `<th>Value</th><th>Chg</th>`).join("")}
+      </tr>
+    `);
+    const rows = RATES_ROWS.filter((row) => state.ratesFamily === "all" || row.family === state.ratesFamily || row.type === "section")
+      .filter((row, idx, arr) => row.type !== "section" || arr.slice(idx + 1).some((next) => next.type !== "section" && (state.ratesFamily === "all" || next.family === row.family)))
+      .map((row) => renderRatesRow(row, countries))
+      .join("");
+    setHtml(el("rates-board-body"), rows);
+    setText(el("rates-source-status"), ratesSourceStatus(countries));
+  }
+
+  function renderRatesRow(row, countries) {
+    if (row.type === "section") {
+      return `<tr class="rates-section-row"><td colspan="${1 + countries.length * 2}">${escapeHtml(row.label)}</td></tr>`;
+    }
+    const cells = countries.map((code) => {
+      const cell = buildRatesCell(row, code);
+      const key = `${code}.${row.label}`;
+      const previous = state.ratesPrevious.get(key);
+      const changed = previous != null && previous !== cell.signature;
+      state.ratesPrevious.set(key, cell.signature);
+      return `
+        <td class="${escapeHtml(cell.valueClass)} ${changed ? "rates-cell-flash" : ""}" title="${escapeHtml(cell.title)}">${escapeHtml(cell.valueText)}</td>
+        <td class="${escapeHtml(cell.changeClass)} ${changed ? "rates-cell-flash" : ""}">${escapeHtml(cell.changeText)}</td>
+      `;
+    }).join("");
+    return `<tr><td class="rates-row-label">${escapeHtml(row.label)}</td>${cells}</tr>`;
+  }
+
+  function buildRatesCell(row, code) {
+    if (row.type === "nofeed") {
+      return {
+        valueText: "N/F",
+        changeText: "--",
+        valueClass: "rates-na",
+        changeClass: "rates-na",
+        signature: `${code}.${row.label}.nofeed`,
+        title: row.reason
+      };
+    }
+    if (row.type === "rate") {
+      const point = state.ratesData.get(`${code}.${row.key}`);
+      if (!point?.ok) return noRateCell(code, row.key, point?.warning || "No public static feed configured");
+      return {
+        valueText: point.value.toFixed(3),
+        changeText: formatBp(point.changeBp),
+        valueClass: "rates-value",
+        changeClass: rateChangeClass(point.changeBp),
+        signature: `${point.value}|${point.changeBp}|${point.date}`,
+        title: `${RATES_MARKETS[code].source}; ${point.seriesId}; ${point.date}`
+      };
+    }
+    if (row.type === "spread") {
+      const long = state.ratesData.get(`${code}.${row.legs[0]}`);
+      const short = state.ratesData.get(`${code}.${row.legs[1]}`);
+      if (!long?.ok || !short?.ok) return noRateCell(code, row.label, "Both curve legs are not available in static source stack");
+      const value = (long.value - short.value) * 100;
+      const prev = long.previous != null && short.previous != null ? (long.previous - short.previous) * 100 : null;
+      const change = prev != null ? value - prev : null;
+      return {
+        valueText: value.toFixed(1),
+        changeText: formatBp(change),
+        valueClass: "rates-value",
+        changeClass: rateChangeClass(change),
+        signature: `${value}|${change}|${long.date}|${short.date}`,
+        title: `Curve spread derived from ${row.legs.join(" and ")}; ${RATES_MARKETS[code].source}`
+      };
+    }
+    return noRateCell(code, row.label, "No static feed configured");
+  }
+
+  function noRateCell(code, key, warning) {
+    return {
+      valueText: "N/F",
+      changeText: "--",
+      valueClass: "rates-na",
+      changeClass: "rates-na",
+      signature: `${code}.${key}.nf`,
+      title: warning
+    };
+  }
+
+  function formatBp(value) {
+    if (value == null || Number.isNaN(Number(value))) return "--";
+    const n = Number(value);
+    const sign = n > 0 ? "+" : "";
+    return `${sign}${n.toFixed(1)}`;
+  }
+
+  function rateChangeClass(value) {
+    if (value == null || Number.isNaN(Number(value))) return "rates-change-flat";
+    if (value > 0.05) return "rates-change-up";
+    if (value < -0.05) return "rates-change-down";
+    return "rates-change-flat";
+  }
+
+  function ratesSourceStatus(countries) {
+    const total = countries.length * RATES_ROWS.filter((r) => r.type !== "section").length;
+    const live = countries.reduce((sum, code) => {
+      return sum + Object.keys(RATES_MARKETS[code].series || {}).filter((key) => state.ratesData.get(`${code}.${key}`)?.ok).length;
+    }, 0);
+    return `${countries.length} markets | ${live} public rate series loaded | refresh ${formatTerminalTime(new Date())}`;
+  }
+
+  function formatTerminalTime(date) {
+    return date.toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZone: "Europe/London"
+    });
+  }
+
+  function ratesBoardText() {
+    const countries = RATES_PRESETS[state.ratesPreset] || RATES_PRESETS.g7;
+    const lines = [];
+    lines.push(["Curve / Product", ...countries.flatMap((code) => [`${RATES_MARKETS[code].short} Value`, `${RATES_MARKETS[code].short} Chg`])].join("\t"));
+    RATES_ROWS.filter((row) => row.type !== "section").forEach((row) => {
+      const rowCells = countries.flatMap((code) => {
+        const cell = buildRatesCell(row, code);
+        return [cell.valueText, cell.changeText];
+      });
+      lines.push([row.label, ...rowCells].join("\t"));
+    });
+    return lines.join("\n");
+  }
+
+  function exportRatesSnapshot() {
+    downloadText(`gme_rates_monitor_${state.ratesPreset}.tsv`, "text/tab-separated-values;charset=utf-8", ratesBoardText());
+    showToast("Rates snapshot exported.");
+  }
+
+  async function copyRatesBoard() {
+    await copyText(ratesBoardText(), "Rates board copied.");
+  }
+
   async function renderChartModule() {
     const chartSeriesIds = Array.from(new Set([state.chartSeries, state.chartSecondarySeries].filter(Boolean)));
     await ensureMany(state.chartCountries, chartSeriesIds);
@@ -2083,6 +2408,7 @@
       { label: "Monitor", cmd: `${state.currentCountry} monitor`, module: "CTRY" },
       { label: "Compare", cmd: `compare ${state.compareA} vs ${state.compareB} ${state.compareSeries}`, module: "COMP" },
       { label: "Diagnose banks", cmd: `${state.currentCountry} banking system`, module: "BANK" },
+      { label: "Rates board", cmd: "global rates", module: "RATES" },
       { label: "Export chart", cmd: `chart ${state.chartSeries} ${state.currentCountry}`, module: "CHRT" },
       { label: "Write note", cmd: `${state.currentCountry} note`, module: "NOTE" }
     ];
@@ -2131,6 +2457,13 @@
 
     state.lastWarning = "";
     if (requestedPeerSet) state.peerSet = requestedPeerSet;
+
+    if (isRatesCommand(lower)) {
+      if (lower.includes("g7")) state.ratesPreset = "g7";
+      if (lower.includes("europe") || lower.includes("bund")) state.ratesPreset = "europe";
+      setModule("RATES", false);
+      return renderActiveModule();
+    }
 
     if (!lower.includes("chart") && (lower.includes("compare") || lower.includes(" vs ") || lower.includes(" versus "))) {
       state.compareA = countries[0] || state.currentCountry;
@@ -2203,6 +2536,17 @@
       }, []);
   }
 
+  function isRatesCommand(text) {
+    return (
+      text.includes("global rates") ||
+      text.includes("rates monitor") ||
+      text.includes("rates board") ||
+      text.includes("g7 rates") ||
+      text.includes("ust") ||
+      text.includes("bund")
+    );
+  }
+
   function findPeerSet(text) {
     if (text.includes("central asia")) return "central_asia";
     if (text.includes("south east asia") || text.includes("southeast asia") || text.includes("asean")) return "south_east_asia";
@@ -2248,6 +2592,7 @@
     if (code === "LIQD") state.domain = "liquidity";
     if (code === "INFL") state.domain = "inflation";
     if (code === "BANK") state.domain = "banking";
+    if (code === "RATES") state.domain = "inflation";
     if (code === "CTRY" || code === "MONITOR") state.domain = "macro";
     syncControls();
     if (render) renderActiveModule();
@@ -2397,6 +2742,17 @@
     el("chart-export-pdf")?.addEventListener("click", () => exportChartPdf());
     el("chart-export-svg")?.addEventListener("click", () => exportChartSvg());
     el("chart-copy-image")?.addEventListener("click", () => copyChartImage());
+    el("rates-preset-select")?.addEventListener("change", (event) => {
+      state.ratesPreset = event.target.value;
+      renderActiveModule();
+    });
+    el("rates-family-select")?.addEventListener("change", (event) => {
+      state.ratesFamily = event.target.value;
+      renderActiveModule();
+    });
+    el("rates-refresh-btn")?.addEventListener("click", () => renderRatesMonitor());
+    el("rates-copy-btn")?.addEventListener("click", () => copyRatesBoard());
+    el("rates-export-btn")?.addEventListener("click", () => exportRatesSnapshot());
     el("copy-note-btn")?.addEventListener("click", () => copyText(el("note-draft")?.value || "", "Note copied."));
     el("copy-questions-btn")?.addEventListener("click", () => {
       const text = all("#note-questions .mini-item").map((node) => node.innerText.trim()).join("\n\n");
