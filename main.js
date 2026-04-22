@@ -2486,6 +2486,8 @@
     const channels = marketChannels(engines).sort((a, b) => b.score - a.score);
     const vulnerabilities = stressLanes(data, engines).slice(0, 4);
     const questions = nextQuestions(data, engines).slice(0, 4);
+    const noteId = `GME-${country.wb}-${CURRENT_DATE.toISOString().slice(0, 10).replace(/-/g, "")}`;
+    const firstChannel = channels[0]?.name || "mixed";
     const metrics = [
       "gdp_growth",
       "inflation",
@@ -2501,17 +2503,20 @@
       .filter(Boolean);
 
     const takeawayLines = [
-      `${country.name} screens as ${regimeLabel(engines).toLowerCase()}.`,
-      `The dominant investor channel is ${channels[0]?.name || "mixed"}, with a pressure score of ${channels[0]?.score ?? "--"}/100.`,
-      `Banking stability is ${bank.stabilityScore}/100 with ${bank.coverage}% macroprudential coverage in the current static adapter.`,
-      `The main monitor-next item is ${vulnerabilities[0]?.label || "data freshness"}: ${vulnerabilities[0]?.text || "verify releases and source coverage before investment use."}`
+      `${country.name} screens as ${regimeLabel(engines).toLowerCase()}, with ${firstChannel.toLowerCase()} the first market channel to test.`,
+      `${points[0]?.label || "The current regime"} is the largest live inflection in the source stack; verify persistence before turning it into a positioning view.`,
+      `Banking stability screens at ${bank.stabilityScore}/100, with the current data stack covering ${bank.coverage}% of the requested macroprudential framework.`,
+      `The monitor-next item is ${vulnerabilities[0]?.label || "source freshness"}: ${vulnerabilities[0]?.text || "refresh the official source stack before publication."}`
     ];
 
     return {
       country,
       date: formatLongDate(CURRENT_DATE),
+      timestamp: formatTimestamp(new Date()),
+      noteId,
       title: `${country.name} Macro And Banking Snapshot`,
       subtitle: "Allocator-ready country summary generated from the Global Macro Engine",
+      standfirst: `${country.name}'s current regime points to ${firstChannel.toLowerCase()} as the leading transmission channel, while the banking module frames whether macro pressure is likely to become financial-system fragility.`,
       regime: regimeLabel(engines),
       engines,
       bank,
@@ -2542,44 +2547,47 @@
     const page = {
       width: pdf.internal.pageSize.getWidth(),
       height: pdf.internal.pageSize.getHeight(),
-      margin: 42,
+      margin: 46,
       y: 42
     };
+    page.content = page.width - page.margin * 2;
     const olive = [125, 100, 31];
-    const muted = [88, 88, 88];
-    const light = [245, 241, 230];
+    const dark = [22, 23, 24];
+    const muted = [92, 92, 92];
+    const pale = [248, 246, 239];
+    const light = [251, 248, 239];
     const line = [205, 205, 205];
     const logo = await loadImageDataUrl(CORDOBA_LOGO_PATH);
 
     function header() {
       pdf.setFillColor(252, 250, 245);
-      pdf.rect(page.margin, 28, page.width - page.margin * 2, 54, "F");
-      pdf.setFillColor(229, 222, 203);
-      pdf.triangle(page.width - 205, 28, page.width - 172, 28, page.width - 118, 82, "F");
-      pdf.setFillColor(218, 210, 188);
-      pdf.triangle(page.width - 170, 28, page.width - 139, 28, page.width - 85, 82, "F");
+      pdf.rect(page.margin, 34, page.content, 58, "F");
+      pdf.setFillColor(228, 221, 202);
+      pdf.triangle(page.width - 205, 34, page.width - 174, 34, page.width - 116, 92, "F");
+      pdf.setFillColor(217, 209, 186);
+      pdf.triangle(page.width - 166, 34, page.width - 136, 34, page.width - 78, 92, "F");
       if (logo) {
-        pdf.addImage(logo, "PNG", page.margin + 6, 34, 94, 38);
+        pdf.addImage(logo, "PNG", page.margin + 5, 42, 92, 37);
       } else {
         pdf.setFont("helvetica", "bold");
         pdf.setFontSize(12);
         pdf.setTextColor(30, 30, 30);
-        pdf.text("Cordoba", page.margin + 8, 48);
-        pdf.text("Research Group", page.margin + 8, 62);
+        pdf.text("Cordoba", page.margin + 8, 55);
+        pdf.text("Research Group", page.margin + 8, 68);
       }
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(9);
       pdf.setTextColor(...muted);
-      pdf.text("Global Markets Research", page.width - page.margin - 125, 55);
+      pdf.text("Global Markets Research", page.width - page.margin - 128, 58);
       pdf.setFontSize(11);
-      pdf.text(model.date, page.width - page.margin - 80, 69);
+      pdf.text(model.date, page.width - page.margin - 82, 73);
       pdf.setFillColor(...olive);
-      pdf.rect(page.margin, 88, page.width - page.margin * 2, 8, "F");
-      page.y = 116;
+      pdf.rect(page.margin, 102, page.content, 8, "F");
+      page.y = 132;
     }
 
     function ensureSpace(height) {
-      if (page.y + height < page.height - 54) return;
+      if (page.y + height < page.height - 68) return;
       pdf.addPage();
       header();
     }
@@ -2587,10 +2595,10 @@
     function sectionTitle(title) {
       ensureSpace(26);
       pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(10);
+      pdf.setFontSize(11);
       pdf.setTextColor(...olive);
       pdf.text(title, page.margin, page.y);
-      page.y += 13;
+      page.y += 15;
     }
 
     function wrapped(text, x, y, width, options = {}) {
@@ -2602,26 +2610,26 @@
       return lines.length * ((options.size || 9) + 2);
     }
 
-    function bullets(lines, x, width) {
+    function bullets(lines, x, width, options = {}) {
       lines.forEach((line) => {
-        ensureSpace(20);
+        ensureSpace(22);
         pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(9);
+        pdf.setFontSize(options.size || 9);
         pdf.setTextColor(30, 30, 30);
         pdf.text("-", x, page.y);
-        const used = wrapped(line, x + 10, page.y, width - 10, { size: 9 });
+        const used = wrapped(line, x + 10, page.y, width - 10, { size: options.size || 9 });
         page.y += Math.max(13, used + 2);
       });
     }
 
-    function simpleTable(headers, rows, widths) {
+    function simpleTable(headers, rows, widths, options = {}) {
       const x0 = page.margin;
-      const rowH = 18;
+      const rowH = options.rowH || 18;
       ensureSpace(rowH * (Math.min(rows.length, 8) + 2));
-      pdf.setFillColor(238, 238, 238);
+      pdf.setFillColor(236, 236, 236);
       pdf.rect(x0, page.y, widths.reduce((a, b) => a + b, 0), rowH, "F");
       pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(7);
+      pdf.setFontSize(7.5);
       pdf.setTextColor(45, 45, 45);
       let x = x0;
       headers.forEach((h, idx) => {
@@ -2630,7 +2638,7 @@
       });
       page.y += rowH;
       pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(7);
+      pdf.setFontSize(7.4);
       rows.forEach((row) => {
         ensureSpace(rowH + 6);
         x = x0;
@@ -2646,48 +2654,126 @@
       page.y += 8;
     }
 
-    header();
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(13);
-    pdf.setTextColor(20, 20, 20);
-    pdf.text("Global Macro Strategy", page.margin, page.y);
-    page.y += 24;
-    pdf.setFontSize(20);
-    pdf.text(model.title, page.margin, page.y);
-    page.y += 15;
-    wrapped(model.subtitle, page.margin, page.y, 360, { size: 9, color: muted });
-    page.y += 22;
+    function qualityBand(score) {
+      if (score >= 70) return "High";
+      if (score >= 56) return "Watch";
+      if (score >= 44) return "Balanced";
+      return "Low";
+    }
 
-    const metaW = (page.width - page.margin * 2) / 4;
-    const meta = [
-      ["Country", model.country.name],
-      ["Region", model.country.region],
-      ["Regime", model.regime],
-      ["First Market", model.channels[0]?.name || "Mixed"]
-    ];
-    pdf.setDrawColor(...line);
-    pdf.setFillColor(250, 250, 250);
-    meta.forEach((m, idx) => {
-      const x = page.margin + idx * metaW;
-      pdf.rect(x, page.y, metaW, 38, "FD");
+    function drawMetadata() {
+      const y = page.y;
+      const widths = [126, 126, 176, page.content - 428];
+      const cells = [
+        ["Country", model.country.name, false],
+        ["Region", model.country.region, true],
+        ["Regime", model.regime, true],
+        ["First Market", model.channels[0]?.name || "Mixed", true]
+      ];
+      let x = page.margin;
+      cells.forEach((cell, idx) => {
+        const [label, value, inverted] = cell;
+        pdf.setFillColor(...(inverted ? dark : [248, 248, 248]));
+        pdf.setDrawColor(...line);
+        pdf.rect(x, y, widths[idx], 38, "FD");
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(7);
+        pdf.setTextColor(...(inverted ? [115, 115, 115] : muted));
+        pdf.text(label.toUpperCase(), x + 6, y + 12);
+        pdf.setFontSize(8);
+        pdf.setTextColor(...(inverted ? [242, 242, 242] : [24, 24, 24]));
+        pdf.text(pdf.splitTextToSize(value, widths[idx] - 12).slice(0, 2), x + 6, y + 25);
+        x += widths[idx];
+      });
+      page.y += 50;
+    }
+
+    function drawAnalystBlock(x, y) {
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(8);
+      pdf.setTextColor(...dark);
+      pdf.text("Research Analyst", x, y);
+      pdf.setDrawColor(...olive);
+      pdf.line(x, y + 4, x + 118, y + 4);
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(7);
+      pdf.text("Global Macro Strategy", x, y + 16);
+      pdf.setFont("helvetica", "normal");
       pdf.setTextColor(...muted);
-      pdf.text(m[0].toUpperCase(), x + 6, page.y + 12);
-      pdf.setFontSize(8);
-      pdf.setTextColor(25, 25, 25);
-      pdf.text(pdf.splitTextToSize(m[1], metaW - 12).slice(0, 2), x + 6, page.y + 25);
-    });
-    page.y += 54;
+      pdf.text("Cordoba Research Group", x, y + 27);
+      pdf.text("GME country note", x, y + 38);
+    }
+
+    function drawEngineFigure() {
+      ensureSpace(138);
+      const x = page.margin + 68;
+      const top = page.y + 18;
+      const barW = 250;
+      const rows = [
+        ["Growth", model.engines.growth.score],
+        ["Inflation", model.engines.inflation.score],
+        ["Liquidity", model.engines.liquidity.score],
+        ["External", model.engines.external.score],
+        ["Banking", model.engines.banking.score]
+      ];
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9);
+      pdf.setTextColor(...dark);
+      pdf.text("Figure 1: Global Macro Engine Scores", page.margin, page.y);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7);
+      pdf.setTextColor(...muted);
+      pdf.text("Scores are history-relative screening indicators, not return forecasts.", page.margin, page.y + 11);
+      rows.forEach((row, idx) => {
+        const y = top + idx * 18;
+        pdf.setTextColor(...dark);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(7.5);
+        pdf.text(row[0], page.margin, y + 8);
+        pdf.setFillColor(235, 235, 235);
+        pdf.rect(x, y, barW, 8, "F");
+        pdf.setFillColor(...olive);
+        pdf.rect(x, y, Math.max(2, (row[1] / 100) * barW), 8, "F");
+        pdf.setTextColor(...muted);
+        pdf.text(`${row[1]} | ${qualityBand(row[1])}`, x + barW + 10, y + 8);
+      });
+      page.y = top + rows.length * 18 + 18;
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7);
+      pdf.setTextColor(...muted);
+      pdf.text("Source: Cordoba Global Macro Engine; underlying series shown in provenance table.", page.margin, page.y);
+      page.y += 20;
+    }
+
+    header();
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.setTextColor(...dark);
+    pdf.text("Global Macro Strategy", page.margin, page.y);
+    page.y += 18;
+    pdf.setFontSize(20);
+    const titleLines = pdf.splitTextToSize(model.title, 350);
+    pdf.text(titleLines, page.margin, page.y);
+    const titleH = titleLines.length * 22;
+    drawAnalystBlock(page.width - page.margin - 150, page.y - 2);
+    page.y += titleH + 2;
+    wrapped(model.standfirst, page.margin, page.y, 370, { size: 9.5, color: muted });
+    page.y += 28;
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(6.5);
+    pdf.setTextColor(...muted);
+    pdf.text(`Source country: ${model.country.wb} | Note ID: ${model.noteId} | Generated: ${model.timestamp}`, page.margin, page.y);
+    page.y += 18;
+    drawMetadata();
 
     sectionTitle("Key Takeaways");
+    const boxTop = page.y - 4;
+    page.y += 7;
+    bullets(model.takeaways, page.margin + 10, page.content - 20);
+    const boxHeight = page.y - boxTop + 2;
     pdf.setFillColor(...light);
     pdf.setDrawColor(217, 201, 164);
-    const boxTop = page.y - 4;
-    const startY = page.y;
-    page.y += 7;
-    bullets(model.takeaways, page.margin + 10, page.width - page.margin * 2 - 20);
-    pdf.rect(page.margin, boxTop, page.width - page.margin * 2, page.y - boxTop + 2, "S");
+    pdf.rect(page.margin, boxTop, page.content, boxHeight, "S");
     page.y += 12;
 
     sectionTitle("Macro And Banking Scoreboard");
@@ -2701,21 +2787,35 @@
         item.def.activeSource,
         freshnessLabel(item.stats, item.def).label
       ]),
-      [92, 62, 44, 34, 142, 130]
+      [86, 62, 42, 34, 146, 132]
     );
 
+    drawEngineFigure();
+
+    sectionTitle("What Changed / Regime Summary");
+    bullets(model.points.slice(0, 4).map((p) => `${p.label}: ${p.value}. ${p.text}`), page.margin, page.content);
+
     sectionTitle("Markets That Care First");
-    bullets(model.channels.slice(0, 4).map((c) => `${c.name} (${c.score}/100): ${c.text}`), page.margin, page.width - page.margin * 2);
+    bullets(model.channels.slice(0, 4).map((c) => `${c.name}: ${qualityBand(c.score)} signal. ${c.text}`), page.margin, page.content);
 
-    sectionTitle("Break Points And Watch Items");
-    bullets(model.vulnerabilities.map((v) => `${v.label}: ${v.text}`), page.margin, page.width - page.margin * 2);
+    sectionTitle("Banking System Stability");
+    bullets([
+      `Stability score: ${model.bank.stabilityScore}/100, with ${model.bank.coverage}% macroprudential coverage in the current source stack.`,
+      bankNarrative(model.country, state.loaded.get(model.country.iso2) || {}, model.bank)
+    ], page.margin, page.content);
 
-    sectionTitle("Cordoba View Setup");
+    sectionTitle("Pressure Points / Vulnerabilities");
+    bullets(model.vulnerabilities.map((v) => `${v.label}: ${v.text}`), page.margin, page.content);
+
+    sectionTitle("What To Monitor Next");
+    bullets(model.questions.map((q) => q.text), page.margin, page.content);
+
+    sectionTitle("Cordoba View / Allocator Framing");
     bullets([
       `Decide whether ${model.country.name}'s current regime is a pricing opportunity, a funding-risk warning, or a wait-for-confirmation setup.`,
       `Test whether ${model.channels[0]?.name || "the dominant channel"} is already priced or still under-owned by allocators.`,
-      "Use the provenance table before publication; avoid live-pricing language where static mode has no market feed."
-    ], page.margin, page.width - page.margin * 2);
+      "Before external publication, verify domestic-source releases where the static adapter uses multilateral annual series."
+    ], page.margin, page.content);
 
     sectionTitle("Provenance");
     simpleTable(
@@ -2724,11 +2824,23 @@
       [110, 125, 42, 64, 60, 103]
     );
 
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(7);
-    pdf.setTextColor(...muted);
-    pdf.text("Generated by Cordoba Research Group Global Macro Engine. Screening and research handoff document, not investment advice.", page.margin, page.height - 30);
+    addFooters();
     pdf.save(filename);
+
+    function addFooters() {
+      const total = pdf.getNumberOfPages();
+      for (let i = 1; i <= total; i += 1) {
+        pdf.setPage(i);
+        pdf.setDrawColor(...line);
+        pdf.line(page.margin, page.height - 46, page.width - page.margin, page.height - 46);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(6.7);
+        pdf.setTextColor(...muted);
+        pdf.text(`${model.noteId} | ${model.timestamp}`, page.margin, page.height - 32);
+        pdf.text("Cordoba Research Group | Global Macro Engine", page.margin, page.height - 22);
+        pdf.text(`Page ${i} of ${total}`, page.width - page.margin - 42, page.height - 32);
+      }
+    }
   }
 
   function renderCountrySummaryMarkdown(model) {
@@ -2798,6 +2910,18 @@
       month: "long",
       year: "numeric",
       timeZone: "Europe/London"
+    });
+  }
+
+  function formatTimestamp(date) {
+    return date.toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Europe/London",
+      timeZoneName: "short"
     });
   }
 
