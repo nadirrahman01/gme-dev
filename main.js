@@ -4,6 +4,7 @@
   const CURRENT_DATE = new Date("2026-04-22T12:00:00Z");
   const CACHE_TTL_MS = 72 * 60 * 60 * 1000;
   const STORAGE_PREFIX = "gme_v1_";
+  const CORDOBA_LOGO_PATH = "assets/Cordoba Capital Logo (500 x 200 px) (3).png";
 
   const el = (id) => document.getElementById(id);
   const all = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -615,8 +616,7 @@
     CHRT: ["CHRT", "Chart Builder", "Multi-country, multi-transform charting with annotations and export."],
     ALRT: ["ALRT", "Saved Monitors And Local Alerts", "Static-safe watchlists stored locally and evaluated when the page is open."],
     RLS: ["RLS", "Release And Freshness Board", "Per-series source, frequency, latest observation, source update and adapter status."],
-    NOTE: ["NOTE", "Analyst Note Helper", "Drop findings into a note, copy questions, and hand off to Cordoba research."],
-    LIB: ["LIB", "Cordoba Research Library", "Research mapped to countries, regimes and workflow modules."]
+    NOTE: ["NOTE", "Analyst Note Helper", "Build a concise CRG-style macro handoff from regime, market, banking and provenance data."]
   };
 
   function escapeHtml(value) {
@@ -1161,7 +1161,6 @@
       if (active === "ALRT") await renderAlerts();
       if (active === "RLS") await renderReleaseBoard();
       if (active === "NOTE") await renderNote();
-      if (active === "LIB") renderLibrary();
       await renderContextPanel();
       setLoadingStatus(state.lastWarning || "Ready");
     } catch (err) {
@@ -1756,7 +1755,7 @@
           y: { ticks: { color: "#9aa6a3" }, grid: { color: "rgba(255,255,255,0.06)" }, title: { display: true, text: chartAxisLabel(def), color: "#9aa6a3" } }
         }
       },
-      plugins: [eventMarkerPlugin()]
+      plugins: [eventMarkerPlugin(), chartBrandPlugin()]
     });
   }
 
@@ -1805,6 +1804,23 @@
           ctx.fillText(event.label.slice(0, 26), x + 4, chartArea.top + 12);
           ctx.restore();
         });
+      }
+    };
+  }
+
+  function chartBrandPlugin() {
+    return {
+      id: "gmeChartBrand",
+      afterDraw(chart) {
+        const { ctx, chartArea } = chart;
+        if (!chartArea) return;
+        ctx.save();
+        ctx.globalAlpha = 0.58;
+        ctx.fillStyle = "#b68a2e";
+        ctx.font = "10px Arial";
+        ctx.textAlign = "right";
+        ctx.fillText("Cordoba Research Group | GME", chartArea.right - 4, chartArea.bottom - 6);
+        ctx.restore();
       }
     };
   }
@@ -1938,26 +1954,72 @@
 
   async function renderNote() {
     await ensureCountryData(state.currentCountry, SERIES_GROUPS.country.concat(SERIES_GROUPS.bank));
+    await ensureCountryData(state.compareB, [state.compareSeries]);
     const data = state.loaded.get(state.currentCountry) || {};
     const engines = enginesFor(data);
     const country = COUNTRIES[state.currentCountry];
     const note = buildNoteDraft(country, data, engines);
     if (el("note-draft")) el("note-draft").value = note;
     setHtml(el("note-questions"), nextQuestions(data, engines).map(renderMiniItem).join(""));
-    setHtml(el("research-matches"), researchMatches(state.currentCountry, state.domain, engines).map(researchCard).join(""));
   }
 
   function buildNoteDraft(country, data, engines) {
+    const bank = bankingScore(data);
+    const channels = marketChannels(engines).sort((a, b) => b.score - a.score);
+    const pressures = pressureItems(data, engines).slice(0, 4);
+    const breaks = stressLanes(data, engines).slice(0, 3);
+    const analogues = collectAnalogueYears(data).slice(0, 5);
+    const peerLine = buildPeerLine(data);
     const lines = [];
-    lines.push(`${country.name} macro monitor - ${regimeLabel(engines)}.`);
+    lines.push(`${country.name} - CRG macro handoff`);
     lines.push("");
-    lines.push(`What changed: ${pressureItems(data, engines).slice(0, 3).map((item) => `${item.label} (${item.value})`).join("; ")}.`);
-    lines.push(`Why it matters: the dominant market channel is ${firstMarket(engines)}, with Growth ${engines.growth.score}/100, Inflation ${engines.inflation.score}/100, Liquidity ${engines.liquidity.score}/100, External ${engines.external.score}/100 and Banking ${engines.banking.score}/100.`);
+    lines.push("Summary");
+    lines.push(`- Regime: ${regimeLabel(engines)}.`);
+    lines.push(`- Dominant return driver: ${channels[0]?.name || "Mixed"} (${channels[0]?.score ?? "--"}/100).`);
+    lines.push(`- Banking read: ${bank.stabilityScore}/100 stability score; ${bank.coverage}% macroprudential coverage in the current source stack.`);
+    if (peerLine) lines.push(`- Peer context: ${peerLine}`);
     lines.push("");
-    lines.push(`Where pressure is building: ${stressLanes(data, engines).slice(0, 2).map((item) => `${item.label} - ${item.text}`).join(" ")}`);
+    lines.push("What changed versus history");
+    pressures.forEach((item) => lines.push(`- ${item.label}: ${item.value}; ${item.text}`));
     lines.push("");
-    lines.push(`Provenance: values shown are sourced per series from the active static adapter, mainly World Bank WDI/GFDD and IMF-derived FSI where exposed through World Bank. Live market data is not fabricated in this GitHub Pages version.`);
+    lines.push("What matters for allocators");
+    channels.slice(0, 4).forEach((channel) => lines.push(`- ${channel.name}: ${channel.text}`));
+    lines.push("");
+    lines.push("Risks and break points");
+    breaks.forEach((item) => lines.push(`- ${item.label}: ${item.text}`));
+    lines.push("");
+    lines.push("Analogues");
+    lines.push(`- Closest recent episodes to test against: ${analogues.length ? analogues.join(", ") : "insufficient cross-series history"}.`);
+    lines.push("");
+    lines.push("Monitor next");
+    nextQuestions(data, engines).slice(0, 4).forEach((item) => lines.push(`- ${item.text}`));
+    lines.push("");
+    lines.push("Potential Cordoba View setup");
+    lines.push(`- The note should decide whether ${country.name}'s current regime is a pricing opportunity, a funding-risk warning, or a wait-for-confirmation setup.`);
+    lines.push(`- The hardest judgement is whether ${channels[0]?.name || "the dominant channel"} is already priced or still under-owned by allocators.`);
+    lines.push("");
+    lines.push("Provenance discipline");
+    lines.push("- Use the source rail before publication. Where market feeds are absent in static mode, state the limitation and avoid live-pricing language.");
     return lines.join("\n");
+  }
+
+  function collectAnalogueYears(data) {
+    const counts = new Map();
+    Object.values(data).forEach((item) => {
+      (item.stats?.analogueYears || []).forEach((year) => counts.set(year, (counts.get(year) || 0) + 1));
+    });
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).map(([year]) => year);
+  }
+
+  function buildPeerLine(data) {
+    const peer = state.loaded.get(state.compareB);
+    const seriesId = state.compareSeries;
+    const own = data[seriesId]?.stats;
+    const other = peer?.[seriesId]?.stats;
+    if (!own || !other) return "";
+    const def = SERIES_BY_ID[seriesId];
+    const diff = own.latest.value - other.latest.value;
+    return `${SERIES_BY_ID[seriesId].short} is ${fmt(Math.abs(diff), def.decimals, def.unit)} ${diff >= 0 ? "above" : "below"} ${COUNTRIES[state.compareB].name}.`;
   }
 
   function nextQuestions(data, engines) {
@@ -1995,10 +2057,6 @@
     `;
   }
 
-  function renderLibrary() {
-    setHtml(el("library-list"), CORDOBA_RESEARCH.map(researchCard).join(""));
-  }
-
   async function renderContextPanel() {
     await ensureCountryData(state.currentCountry, SERIES_GROUPS.core);
     const data = state.loaded.get(state.currentCountry) || {};
@@ -2034,9 +2092,6 @@
         <small>${escapeHtml(item.cmd)}</small>
       </button>
     `).join(""));
-    setHtml(el("context-research"), researchMatches(state.currentCountry, state.domain, engines).slice(0, 3).map((note) => `
-      <a href="${escapeHtml(note.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(note.title)}</a>
-    `).join("") || "No mapped research note yet.");
   }
 
   function provenanceItem(item) {
@@ -2339,6 +2394,9 @@
     el("export-workstation-btn")?.addEventListener("click", () => exportCountrySummary());
     el("export-summary-btn")?.addEventListener("click", () => exportCountrySummary());
     el("chart-export-png")?.addEventListener("click", () => exportChartPng());
+    el("chart-export-pdf")?.addEventListener("click", () => exportChartPdf());
+    el("chart-export-svg")?.addEventListener("click", () => exportChartSvg());
+    el("chart-copy-image")?.addEventListener("click", () => copyChartImage());
     el("copy-note-btn")?.addEventListener("click", () => copyText(el("note-draft")?.value || "", "Note copied."));
     el("copy-questions-btn")?.addEventListener("click", () => {
       const text = all("#note-questions .mini-item").map((node) => node.innerText.trim()).join("\n\n");
@@ -2403,21 +2461,23 @@
   }
 
   async function exportCountrySummary() {
+    if (!window.jspdf) {
+      showToast("PDF library is not available.");
+      return;
+    }
     setLoadingStatus("Generating country summary export...");
     await ensureCountryData(state.currentCountry, Array.from(new Set(SERIES_GROUPS.country.concat(SERIES_GROUPS.bank))));
     const data = state.loaded.get(state.currentCountry) || {};
     const engines = enginesFor(data);
     const country = COUNTRIES[state.currentCountry];
     const model = buildCountrySummaryModel(country, data, engines);
-    const html = renderCountrySummaryHtml(model);
     const markdown = renderCountrySummaryMarkdown(model);
     const slug = country.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 
-    downloadText(`gme_${slug}_country_summary.html`, "text/html;charset=utf-8", html);
-    downloadText(`gme_${slug}_country_summary.md`, "text/markdown;charset=utf-8", markdown);
+    await renderCountrySummaryPdf(model, `gme_${slug}_country_summary.pdf`);
     if (el("note-draft")) el("note-draft").value = markdown;
     setLoadingStatus(`Country summary exported for ${country.name}`);
-    showToast("Country summary exported as HTML and Markdown.");
+    showToast("Country summary PDF exported.");
   }
 
   function buildCountrySummaryModel(country, data, engines) {
@@ -2426,7 +2486,6 @@
     const channels = marketChannels(engines).sort((a, b) => b.score - a.score);
     const vulnerabilities = stressLanes(data, engines).slice(0, 4);
     const questions = nextQuestions(data, engines).slice(0, 4);
-    const research = researchMatches(country.iso2, state.domain, engines).slice(0, 4);
     const metrics = [
       "gdp_growth",
       "inflation",
@@ -2460,7 +2519,6 @@
       channels,
       vulnerabilities,
       questions,
-      research,
       metrics,
       takeaways: takeawayLines,
       provenance: metrics.map((item) => ({
@@ -2478,132 +2536,199 @@
     };
   }
 
-  function renderCountrySummaryHtml(model) {
-    const metricRows = model.metrics.map((item) => {
-      const stats = item.stats;
-      const fresh = freshnessLabel(stats, item.def);
-      return `
-        <tr>
-          <td>${escapeHtml(item.def.label)}</td>
-          <td>${escapeHtml(stats ? stats.formatted : "No observation")}</td>
-          <td>${escapeHtml(stats?.latest?.year || "No observation")}</td>
-          <td>${escapeHtml(stats ? compact(stats.z, 2) : "--")}</td>
-          <td>${escapeHtml(item.def.activeSource)}</td>
-          <td>${escapeHtml(fresh.label)}</td>
-        </tr>
-      `;
-    }).join("");
+  async function renderCountrySummaryPdf(model, filename) {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF("p", "pt", "a4");
+    const page = {
+      width: pdf.internal.pageSize.getWidth(),
+      height: pdf.internal.pageSize.getHeight(),
+      margin: 42,
+      y: 42
+    };
+    const olive = [125, 100, 31];
+    const muted = [88, 88, 88];
+    const light = [245, 241, 230];
+    const line = [205, 205, 205];
+    const logo = await loadImageDataUrl(CORDOBA_LOGO_PATH);
 
-    const provenanceRows = model.provenance.map((row) => `
-      <tr>
-        <td>${escapeHtml(row.series)}</td>
-        <td>${escapeHtml(row.source)}</td>
-        <td>${escapeHtml(row.frequency)}</td>
-        <td>${escapeHtml(row.releaseDate)}</td>
-        <td>${escapeHtml(row.status)}</td>
-        <td>${escapeHtml(row.interpolated)}</td>
-        <td>${escapeHtml(row.freshness)}</td>
-      </tr>
-    `).join("");
+    function header() {
+      pdf.setFillColor(252, 250, 245);
+      pdf.rect(page.margin, 28, page.width - page.margin * 2, 54, "F");
+      pdf.setFillColor(229, 222, 203);
+      pdf.triangle(page.width - 205, 28, page.width - 172, 28, page.width - 118, 82, "F");
+      pdf.setFillColor(218, 210, 188);
+      pdf.triangle(page.width - 170, 28, page.width - 139, 28, page.width - 85, 82, "F");
+      if (logo) {
+        pdf.addImage(logo, "PNG", page.margin + 6, 34, 94, 38);
+      } else {
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(12);
+        pdf.setTextColor(30, 30, 30);
+        pdf.text("Cordoba", page.margin + 8, 48);
+        pdf.text("Research Group", page.margin + 8, 62);
+      }
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(9);
+      pdf.setTextColor(...muted);
+      pdf.text("Global Markets Research", page.width - page.margin - 125, 55);
+      pdf.setFontSize(11);
+      pdf.text(model.date, page.width - page.margin - 80, 69);
+      pdf.setFillColor(...olive);
+      pdf.rect(page.margin, 88, page.width - page.margin * 2, 8, "F");
+      page.y = 116;
+    }
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(model.title)}</title>
-  <style>
-    body { margin: 0; background: #f3f0e8; color: #171717; font-family: Arial, Helvetica, sans-serif; }
-    .page { width: 920px; min-height: 1180px; margin: 24px auto; background: #fff; padding: 36px 44px 44px; box-shadow: 0 12px 30px rgba(0,0,0,.18); }
-    .mast { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: start; border-bottom: 8px solid #7d641f; padding-bottom: 10px; }
-    .brand { font-weight: 700; font-size: 18px; line-height: 1.05; }
-    .desk { text-align: right; font-size: 12px; color: #5f5a4c; }
-    .eyebrow { margin-top: 18px; color: #7d641f; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-    h1 { margin: 8px 0 4px; font-size: 28px; line-height: 1.08; }
-    .subtitle { margin: 0 0 14px; font-size: 13px; color: #4f4f4f; }
-    .meta { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid #cfcfcf; border-bottom: 1px solid #cfcfcf; margin: 14px 0; }
-    .meta div { padding: 8px 10px; border-right: 1px solid #dedede; }
-    .meta div:last-child { border-right: 0; }
-    .meta span { display: block; color: #696969; font-size: 10px; text-transform: uppercase; }
-    .meta b { display: block; margin-top: 3px; font-size: 13px; }
-    .box { border: 1px solid #d7c9a4; background: #fffaf0; padding: 10px 12px; margin: 14px 0; }
-    .box h2, .section h2 { margin: 0 0 8px; font-size: 15px; color: #6f581d; }
-    ul { margin: 0; padding-left: 18px; }
-    li { margin: 4px 0; font-size: 12px; line-height: 1.35; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .section { margin-top: 16px; }
-    table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    th { text-align: left; background: #efefef; color: #343434; font-size: 10px; text-transform: uppercase; }
-    th, td { border-bottom: 1px solid #dddddd; padding: 6px 7px; vertical-align: top; }
-    .pill { display: inline-block; border: 1px solid #bba25a; padding: 2px 6px; margin: 0 4px 4px 0; font-size: 11px; background: #fbf7eb; }
-    .note { color: #575757; font-size: 10px; line-height: 1.35; }
-    .footer { margin-top: 20px; border-top: 1px solid #cfcfcf; padding-top: 8px; color: #666; font-size: 10px; }
-    @media print { body { background: #fff; } .page { margin: 0; box-shadow: none; width: auto; } }
-  </style>
-</head>
-<body>
-  <article class="page">
-    <header class="mast">
-      <div class="brand">Cordoba<br />Research Group</div>
-      <div class="desk">Global Macro Engine<br />Country Summary<br />${escapeHtml(model.date)}</div>
-    </header>
-    <div class="eyebrow">Global Macro Strategy</div>
-    <h1>${escapeHtml(model.title)}</h1>
-    <p class="subtitle">${escapeHtml(model.subtitle)}</p>
-    <div class="meta">
-      <div><span>Country</span><b>${escapeHtml(model.country.name)}</b></div>
-      <div><span>Region</span><b>${escapeHtml(model.country.region)}</b></div>
-      <div><span>Regime</span><b>${escapeHtml(model.regime)}</b></div>
-      <div><span>First market</span><b>${escapeHtml(model.channels[0]?.name || "Mixed")}</b></div>
-    </div>
-    <section class="box">
-      <h2>Key Takeaways</h2>
-      <ul>${model.takeaways.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>
-    </section>
-    <section class="section">
-      <h2>Macro And Banking Scoreboard</h2>
-      <table>
-        <thead><tr><th>Metric</th><th>Latest</th><th>Period</th><th>Z-score</th><th>Source</th><th>Freshness</th></tr></thead>
-        <tbody>${metricRows}</tbody>
-      </table>
-    </section>
-    <section class="grid">
-      <div class="section">
-        <h2>Markets That Care First</h2>
-        ${model.channels.map((channel) => `<span class="pill">${escapeHtml(channel.name)} ${escapeHtml(String(channel.score))}/100</span>`).join("")}
-        <ul>${model.channels.slice(0, 3).map((channel) => `<li>${escapeHtml(channel.text)}</li>`).join("")}</ul>
-      </div>
-      <div class="section">
-        <h2>Largest Vulnerabilities</h2>
-        <ul>${model.vulnerabilities.map((item) => `<li><b>${escapeHtml(item.label)}:</b> ${escapeHtml(item.text)}</li>`).join("")}</ul>
-      </div>
-    </section>
-    <section class="grid">
-      <div class="section">
-        <h2>Banking System Read</h2>
-        <p class="note">${escapeHtml(bankNarrative(model.country, state.loaded.get(model.country.iso2) || {}, model.bank))}</p>
-      </div>
-      <div class="section">
-        <h2>Monitor Next</h2>
-        <ul>${model.questions.map((item) => `<li>${escapeHtml(item.text)}</li>`).join("")}</ul>
-      </div>
-    </section>
-    <section class="section">
-      <h2>Research Handoff</h2>
-      <ul>${model.research.length ? model.research.map((note) => `<li>${escapeHtml(note.title)} - ${escapeHtml(note.url)}</li>`).join("") : "<li>No directly mapped Cordoba note in the current library mapping.</li>"}</ul>
-    </section>
-    <section class="section">
-      <h2>Provenance</h2>
-      <table>
-        <thead><tr><th>Series</th><th>Source</th><th>Frequency</th><th>Release</th><th>Status</th><th>Interpolated</th><th>Freshness</th></tr></thead>
-        <tbody>${provenanceRows}</tbody>
-      </table>
-      <p class="note">Static GitHub Pages mode: direct official and institutional APIs are used where feasible. Live market prices, CDS, curves and server-side push alerts are not fabricated.</p>
-    </section>
-    <footer class="footer">Generated by Cordoba Research Group Global Macro Engine. This is a screening and research handoff document, not investment advice.</footer>
-  </article>
-</body>
-</html>`;
+    function ensureSpace(height) {
+      if (page.y + height < page.height - 54) return;
+      pdf.addPage();
+      header();
+    }
+
+    function sectionTitle(title) {
+      ensureSpace(26);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(10);
+      pdf.setTextColor(...olive);
+      pdf.text(title, page.margin, page.y);
+      page.y += 13;
+    }
+
+    function wrapped(text, x, y, width, options = {}) {
+      pdf.setFont("helvetica", options.bold ? "bold" : "normal");
+      pdf.setFontSize(options.size || 9);
+      pdf.setTextColor(...(options.color || [30, 30, 30]));
+      const lines = pdf.splitTextToSize(text, width);
+      pdf.text(lines, x, y);
+      return lines.length * ((options.size || 9) + 2);
+    }
+
+    function bullets(lines, x, width) {
+      lines.forEach((line) => {
+        ensureSpace(20);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(9);
+        pdf.setTextColor(30, 30, 30);
+        pdf.text("-", x, page.y);
+        const used = wrapped(line, x + 10, page.y, width - 10, { size: 9 });
+        page.y += Math.max(13, used + 2);
+      });
+    }
+
+    function simpleTable(headers, rows, widths) {
+      const x0 = page.margin;
+      const rowH = 18;
+      ensureSpace(rowH * (Math.min(rows.length, 8) + 2));
+      pdf.setFillColor(238, 238, 238);
+      pdf.rect(x0, page.y, widths.reduce((a, b) => a + b, 0), rowH, "F");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(7);
+      pdf.setTextColor(45, 45, 45);
+      let x = x0;
+      headers.forEach((h, idx) => {
+        pdf.text(h, x + 4, page.y + 12);
+        x += widths[idx];
+      });
+      page.y += rowH;
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7);
+      rows.forEach((row) => {
+        ensureSpace(rowH + 6);
+        x = x0;
+        pdf.setDrawColor(...line);
+        pdf.line(x0, page.y, x0 + widths.reduce((a, b) => a + b, 0), page.y);
+        row.forEach((cell, idx) => {
+          const text = pdf.splitTextToSize(String(cell ?? ""), widths[idx] - 8).slice(0, 2);
+          pdf.text(text, x + 4, page.y + 11);
+          x += widths[idx];
+        });
+        page.y += rowH;
+      });
+      page.y += 8;
+    }
+
+    header();
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(13);
+    pdf.setTextColor(20, 20, 20);
+    pdf.text("Global Macro Strategy", page.margin, page.y);
+    page.y += 24;
+    pdf.setFontSize(20);
+    pdf.text(model.title, page.margin, page.y);
+    page.y += 15;
+    wrapped(model.subtitle, page.margin, page.y, 360, { size: 9, color: muted });
+    page.y += 22;
+
+    const metaW = (page.width - page.margin * 2) / 4;
+    const meta = [
+      ["Country", model.country.name],
+      ["Region", model.country.region],
+      ["Regime", model.regime],
+      ["First Market", model.channels[0]?.name || "Mixed"]
+    ];
+    pdf.setDrawColor(...line);
+    pdf.setFillColor(250, 250, 250);
+    meta.forEach((m, idx) => {
+      const x = page.margin + idx * metaW;
+      pdf.rect(x, page.y, metaW, 38, "FD");
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(7);
+      pdf.setTextColor(...muted);
+      pdf.text(m[0].toUpperCase(), x + 6, page.y + 12);
+      pdf.setFontSize(8);
+      pdf.setTextColor(25, 25, 25);
+      pdf.text(pdf.splitTextToSize(m[1], metaW - 12).slice(0, 2), x + 6, page.y + 25);
+    });
+    page.y += 54;
+
+    sectionTitle("Key Takeaways");
+    pdf.setFillColor(...light);
+    pdf.setDrawColor(217, 201, 164);
+    const boxTop = page.y - 4;
+    const startY = page.y;
+    page.y += 7;
+    bullets(model.takeaways, page.margin + 10, page.width - page.margin * 2 - 20);
+    pdf.rect(page.margin, boxTop, page.width - page.margin * 2, page.y - boxTop + 2, "S");
+    page.y += 12;
+
+    sectionTitle("Macro And Banking Scoreboard");
+    simpleTable(
+      ["Metric", "Latest", "Period", "Z", "Source", "Freshness"],
+      model.metrics.map((item) => [
+        item.def.short,
+        item.stats ? item.stats.formatted : "No observation",
+        item.stats?.latest?.year || "-",
+        item.stats ? compact(item.stats.z, 2) : "-",
+        item.def.activeSource,
+        freshnessLabel(item.stats, item.def).label
+      ]),
+      [92, 62, 44, 34, 142, 130]
+    );
+
+    sectionTitle("Markets That Care First");
+    bullets(model.channels.slice(0, 4).map((c) => `${c.name} (${c.score}/100): ${c.text}`), page.margin, page.width - page.margin * 2);
+
+    sectionTitle("Break Points And Watch Items");
+    bullets(model.vulnerabilities.map((v) => `${v.label}: ${v.text}`), page.margin, page.width - page.margin * 2);
+
+    sectionTitle("Cordoba View Setup");
+    bullets([
+      `Decide whether ${model.country.name}'s current regime is a pricing opportunity, a funding-risk warning, or a wait-for-confirmation setup.`,
+      `Test whether ${model.channels[0]?.name || "the dominant channel"} is already priced or still under-owned by allocators.`,
+      "Use the provenance table before publication; avoid live-pricing language where static mode has no market feed."
+    ], page.margin, page.width - page.margin * 2);
+
+    sectionTitle("Provenance");
+    simpleTable(
+      ["Series", "Source", "Freq", "Release", "Status", "Freshness"],
+      model.provenance.map((row) => [row.series, row.source, row.frequency, row.releaseDate, row.status, row.freshness]),
+      [110, 125, 42, 64, 60, 103]
+    );
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(7);
+    pdf.setTextColor(...muted);
+    pdf.text("Generated by Cordoba Research Group Global Macro Engine. Screening and research handoff document, not investment advice.", page.margin, page.height - 30);
+    pdf.save(filename);
   }
 
   function renderCountrySummaryMarkdown(model) {
@@ -2647,6 +2772,26 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function loadImageDataUrl(src) {
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(image, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        } catch (err) {
+          resolve("");
+        }
+      };
+      image.onerror = () => resolve("");
+      image.src = src;
+    });
+  }
+
   function formatLongDate(date) {
     return date.toLocaleDateString("en-GB", {
       day: "2-digit",
@@ -2671,6 +2816,113 @@
     showToast("Chart PNG exported.");
   }
 
+  function exportChartPdf() {
+    if (!state.chart || !window.jspdf) {
+      showToast("Chart or PDF library is not ready.");
+      return;
+    }
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF("l", "pt", "a4");
+    const img = state.chart.toBase64Image("image/png", 1);
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    pdf.setFillColor(13, 17, 19);
+    pdf.rect(0, 0, pageWidth, pageHeight, "F");
+    pdf.setTextColor(231, 236, 234);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(13);
+    pdf.text(`${SERIES_BY_ID[state.chartSeries].label}`, 34, 34);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(8);
+    pdf.setTextColor(182, 138, 46);
+    pdf.text("Cordoba Research Group | Global Macro Engine", pageWidth - 210, 34);
+    pdf.addImage(img, "PNG", 34, 52, pageWidth - 68, pageHeight - 88);
+    pdf.save(`gme_chart_${state.chartSeries}.pdf`);
+    showToast("Chart PDF exported.");
+  }
+
+  function exportChartSvg() {
+    const svg = buildChartSvg();
+    if (!svg) {
+      showToast("Chart SVG is not available.");
+      return;
+    }
+    downloadText(`gme_chart_${state.chartSeries}.svg`, "image/svg+xml;charset=utf-8", svg);
+    showToast("Chart SVG exported.");
+  }
+
+  async function copyChartImage() {
+    if (!state.chart || !navigator.clipboard || !window.ClipboardItem) {
+      showToast("Clipboard image copy is not supported by this browser.");
+      return;
+    }
+    const canvas = state.chart.canvas;
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        showToast("Chart image copy failed.");
+        return;
+      }
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        showToast("Chart image copied.");
+      } catch (err) {
+        showToast("Chart image copy failed.");
+      }
+    }, "image/png");
+  }
+
+  function buildChartSvg() {
+    const seriesIds = Array.from(new Set([state.chartSeries, state.chartSecondarySeries].filter(Boolean)));
+    const width = 960;
+    const height = 540;
+    const margin = { top: 54, right: 34, bottom: 58, left: 62 };
+    const allSeries = [];
+    state.chartCountries.forEach((code) => {
+      seriesIds.forEach((seriesId) => {
+        const item = state.loaded.get(code)?.[seriesId];
+        const data = transformSeries(item?.series || [], state.chartTransform).filter((p) => Number.isFinite(p.y));
+        if (data.length) allSeries.push({ code, seriesId, data });
+      });
+    });
+    if (!allSeries.length) return "";
+    const labels = Array.from(new Set(allSeries.flatMap((s) => s.data.map((p) => p.x)))).sort();
+    const values = allSeries.flatMap((s) => s.data.map((p) => p.y));
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const pad = max === min ? 1 : (max - min) * 0.08;
+    const yMin = min - pad;
+    const yMax = max + pad;
+    const xScale = (x) => {
+      const idx = labels.indexOf(x);
+      return margin.left + (idx / Math.max(labels.length - 1, 1)) * (width - margin.left - margin.right);
+    };
+    const yScale = (y) => margin.top + ((yMax - y) / (yMax - yMin || 1)) * (height - margin.top - margin.bottom);
+    const paths = allSeries.map((s, idx) => {
+      const d = s.data.map((p, i) => `${i === 0 ? "M" : "L"}${xScale(p.x).toFixed(1)},${yScale(p.y).toFixed(1)}`).join(" ");
+      return `<path d="${d}" fill="none" stroke="${svgColor(idx)}" stroke-width="${s.seriesId === state.chartSeries ? 2.2 : 1.6}" ${s.seriesId === state.chartSeries ? "" : "stroke-dasharray=\"6 5\""}><title>${escapeHtml(COUNTRIES[s.code].name)} - ${escapeHtml(SERIES_BY_ID[s.seriesId].short)}</title></path>`;
+    }).join("");
+    const grid = [0, 0.25, 0.5, 0.75, 1].map((t) => {
+      const y = margin.top + t * (height - margin.top - margin.bottom);
+      const val = yMax - t * (yMax - yMin);
+      return `<line x1="${margin.left}" y1="${y}" x2="${width - margin.right}" y2="${y}" stroke="rgba(255,255,255,.12)"/><text x="${margin.left - 8}" y="${y + 3}" text-anchor="end" fill="#9aa6a3" font-size="11">${val.toFixed(1)}</text>`;
+    }).join("");
+    const legend = allSeries.map((s, idx) => `<text x="${margin.left + idx * 150}" y="${height - 20}" fill="${svgColor(idx)}" font-size="11">${escapeHtml(COUNTRIES[s.code].name)} ${escapeHtml(SERIES_BY_ID[s.seriesId].short)}</text>`).join("");
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <rect width="100%" height="100%" fill="#0d1113"/>
+      <text x="${margin.left}" y="30" fill="#e7ecea" font-family="Arial" font-size="18" font-weight="700">${escapeHtml(SERIES_BY_ID[state.chartSeries].label)}</text>
+      <text x="${width - margin.right}" y="30" text-anchor="end" fill="#b68a2e" font-family="Arial" font-size="11">Cordoba Research Group | GME</text>
+      ${grid}
+      <line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="#2a3435"/>
+      ${paths}
+      ${legend}
+      <text x="${width - margin.right}" y="${height - 8}" text-anchor="end" fill="#687471" font-family="Arial" font-size="10">Source: active GME series provenance</text>
+    </svg>`;
+  }
+
+  function svgColor(index) {
+    return ["#b68a2e", "#48bea6", "#e25f4c", "#819ad3", "#e8b856", "#ab72bf"][index % 6];
+  }
+
   function showToast(message) {
     const toast = el("toast");
     if (!toast) return;
@@ -2679,9 +2931,28 @@
     window.setTimeout(() => toast.classList.remove("visible"), 2600);
   }
 
+  function updateStatusClock() {
+    const center = el("status-center");
+    if (!center) return;
+    const label = new Intl.DateTimeFormat("en-GB", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "short",
+      timeZone: "Europe/London"
+    }).format(new Date());
+    center.textContent = label;
+  }
+
   function init() {
     populateControls();
     attachEvents();
+    updateStatusClock();
+    window.setInterval(updateStatusClock, 1000);
     renderActiveModule();
   }
 
