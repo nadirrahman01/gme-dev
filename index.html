@@ -26,7 +26,7 @@
           id="command-input"
           type="search"
           spellcheck="false"
-          placeholder="Type: KAZ inflation, compare UZB vs KAZ inflation, US bank stress, chart BIS credit gap Poland"
+          placeholder="Type: KAZ inflation, compare UZB vs KAZ inflation, global rates, UST vs Bunds"
         />
         <button class="command-submit" type="submit">GO</button>
       </form>
@@ -43,9 +43,10 @@
       <button class="workflow-step" type="button" data-module="CTRY">2 Monitor</button>
       <button class="workflow-step" type="button" data-module="COMP">3 Compare</button>
       <button class="workflow-step" type="button" data-module="BANK">4 Diagnose</button>
-      <button class="workflow-step" type="button" data-module="CHRT">5 Chart</button>
-      <button class="workflow-step" type="button" data-module="NOTE">6 Write</button>
-      <button class="workflow-step" type="button" data-action="export">7 Export Note</button>
+      <button class="workflow-step" type="button" data-module="RATES">5 Rates</button>
+      <button class="workflow-step" type="button" data-module="CHRT">6 Chart</button>
+      <button class="workflow-step" type="button" data-module="NOTE">7 Write</button>
+      <button class="workflow-step" type="button" data-action="export">8 Export Note</button>
     </div>
 
     <div class="terminal-body">
@@ -77,6 +78,10 @@
         <button class="function-key" type="button" data-module="INFL">
           <span>INFL</span>
           <small>Inflation and policy</small>
+        </button>
+        <button class="function-key" type="button" data-module="RATES">
+          <span>RATES</span>
+          <small>Global rates</small>
         </button>
         <button class="function-key" type="button" data-module="CHRT">
           <span>CHRT</span>
@@ -441,6 +446,45 @@
               </div>
               <div id="inflation-checklist" class="stack"></div>
             </div>
+          </div>
+        </section>
+
+        <section class="module-screen" id="screen-RATES" data-screen="RATES">
+          <div class="rates-terminal">
+            <div class="rates-header">
+              <div class="rates-title">
+                <strong>Global Rates Monitor</strong>
+                <span id="rates-refresh-stamp">--</span>
+              </div>
+              <div class="rates-controls">
+                <select id="rates-preset-select" class="terminal-select compact">
+                  <option value="g7">G7</option>
+                  <option value="europe">Europe</option>
+                  <option value="core">Core DM</option>
+                </select>
+                <select id="rates-family-select" class="terminal-select compact">
+                  <option value="all">All blocks</option>
+                  <option value="sovereign">Sovereign</option>
+                  <option value="inflation">Inflation</option>
+                  <option value="curves">Curves</option>
+                  <option value="swaps">Swaps</option>
+                </select>
+                <button class="terminal-button" id="rates-refresh-btn" type="button">Refresh</button>
+                <button class="terminal-button" id="rates-copy-btn" type="button">Copy</button>
+                <button class="terminal-button" id="rates-export-btn" type="button">Snapshot</button>
+              </div>
+            </div>
+            <div class="rates-strip">
+              <span id="rates-source-status">Source stack: FRED/OECD where available; unavailable swap/futures feeds are marked N/F.</span>
+              <span id="rates-live-light" class="rates-live-light"></span>
+            </div>
+            <div class="rates-board-wrap">
+              <table class="rates-board" id="rates-board">
+                <thead id="rates-board-head"></thead>
+                <tbody id="rates-board-body"></tbody>
+              </table>
+            </div>
+            <div class="rates-foot" id="rates-footnote"></div>
           </div>
         </section>
 
