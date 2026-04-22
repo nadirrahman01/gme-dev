@@ -17,6 +17,7 @@
     compareB: "UZ",
     compareSeries: "inflation",
     chartSeries: "inflation",
+    chartSecondarySeries: "",
     chartTransform: "level",
     chartCountries: ["KZ", "UZ"],
     loaded: new Map(),
@@ -698,6 +699,24 @@
     return { label: "Lagged", tone: "warn" };
   }
 
+  function attentionClass(itemOrScore, def = null) {
+    if (typeof itemOrScore === "number") {
+      if (itemOrScore >= 76) return "attention-live attention-critical";
+      if (itemOrScore >= 62) return "attention-live attention-watch";
+      return "";
+    }
+    const item = itemOrScore;
+    if (!item || !item.stats || !item.def) return "";
+    const risk = riskFromStat(item.stats, def || item.def);
+    const fresh = freshnessLabel(item.stats, item.def);
+    if (fresh.tone === "bad") return "attention-live attention-stale";
+    if (risk >= 76) return "attention-live attention-critical";
+    if (risk >= 62 || Math.abs(item.stats.delta || 0) > Math.max(1, Math.abs(item.stats.mean || 0) * 0.15)) {
+      return "attention-live attention-watch";
+    }
+    return "";
+  }
+
   function orientationAdjustedZ(stat, def) {
     if (!stat) return null;
     const z = stat.z || 0;
@@ -1075,7 +1094,7 @@
 
   function renderMiniItem(item) {
     return `
-      <div class="mini-item tone-${escapeHtml(item.tone || "neutral")}">
+      <div class="mini-item tone-${escapeHtml(item.tone || "neutral")} ${escapeHtml(item.attention || "")}">
         <div class="mini-item-top">
           <strong>${escapeHtml(item.label)}</strong>
           <span>${escapeHtml(item.value)}</span>
@@ -1093,7 +1112,7 @@
     const fresh = freshnessLabel(stats, def);
     const z = stats.z == null ? "--" : compact(stats.z, 2);
     return `
-      <div class="metric-card tone-${escapeHtml(signalTone(stats.z, def))}" data-series="${escapeHtml(def.id)}">
+      <div class="metric-card tone-${escapeHtml(signalTone(stats.z, def))} ${escapeHtml(attentionClass(item))}" data-series="${escapeHtml(def.id)}">
         <div class="metric-top">
           <span>${escapeHtml(options.label || def.short)}</span>
           <b>${escapeHtml(stats.formatted)}</b>
@@ -1118,7 +1137,7 @@
     }
     const fresh = freshnessLabel(item.stats, item.def);
     return `
-      <div class="pane-row tone-${escapeHtml(signalTone(item.stats.z, item.def))}">
+      <div class="pane-row tone-${escapeHtml(signalTone(item.stats.z, item.def))} ${escapeHtml(attentionClass(item))}">
         <span>${escapeHtml(item.def.short)}</span>
         <strong>${escapeHtml(item.stats.formatted)}</strong>
         <small>${escapeHtml(item.stats.latest.year)} | z ${escapeHtml(compact(item.stats.z, 2))} | ${escapeHtml(item.def.activeSource)} | ${escapeHtml(fresh.label)}</small>
@@ -1180,7 +1199,7 @@
       const infl = data.inflation?.stats;
       const external = data.current_account?.stats;
       return `
-        <tr data-country-row="${escapeHtml(code)}">
+        <tr data-country-row="${escapeHtml(code)}" class="${escapeHtml(attentionClass(Math.max(engines.external.score, 100 - engines.inflation.score, 100 - bank.stabilityScore)))}">
           <td>
             <button class="table-link" type="button" data-open-country="${escapeHtml(code)}">${escapeHtml(country.name)}</button>
             <small>${escapeHtml(country.region)}</small>
@@ -1637,7 +1656,8 @@
   }
 
   async function renderChartModule() {
-    await ensureMany(state.chartCountries, [state.chartSeries]);
+    const chartSeriesIds = Array.from(new Set([state.chartSeries, state.chartSecondarySeries].filter(Boolean)));
+    await ensureMany(state.chartCountries, chartSeriesIds);
     renderChartCountryPicks();
     renderChartAnnotations();
     renderChartTemplates();
@@ -1684,19 +1704,27 @@
       setLoadingStatus("Chart.js is not available; charting needs the CDN asset.");
       return;
     }
+    const seriesIds = Array.from(new Set([state.chartSeries, state.chartSecondarySeries].filter(Boolean)));
     const def = SERIES_BY_ID[state.chartSeries];
-    const datasets = state.chartCountries.map((code, index) => {
-      const item = state.loaded.get(code)?.[state.chartSeries];
-      const points = item?.series || [];
-      return {
-        label: COUNTRIES[code].name,
-        data: transformSeries(points, state.chartTransform),
-        borderColor: chartColor(index),
-        backgroundColor: chartColor(index, 0.18),
-        borderWidth: 2,
-        pointRadius: 2,
-        tension: 0.25
-      };
+    const datasets = [];
+    state.chartCountries.forEach((code) => {
+      seriesIds.forEach((seriesId) => {
+        const item = state.loaded.get(code)?.[seriesId];
+        const points = item?.series || [];
+        const index = datasets.length;
+        datasets.push({
+          label: `${COUNTRIES[code].name} - ${SERIES_BY_ID[seriesId].short}`,
+          countryCode: code,
+          seriesId,
+          data: transformSeries(points, state.chartTransform),
+          borderColor: chartColor(index),
+          backgroundColor: chartColor(index, 0.18),
+          borderWidth: seriesId === state.chartSeries ? 2 : 1.5,
+          borderDash: seriesId === state.chartSeries ? [] : [5, 4],
+          pointRadius: 2,
+          tension: 0.25
+        });
+      });
     });
 
     if (state.chart) state.chart.destroy();
@@ -1715,8 +1743,9 @@
               afterBody: (items) => {
                 const first = items[0];
                 if (!first) return "";
-                const countryCode = state.chartCountries[first.datasetIndex];
-                const item = state.loaded.get(countryCode)?.[state.chartSeries];
+                const dataset = first.chart.data.datasets[first.datasetIndex];
+                const countryCode = dataset.countryCode;
+                const item = state.loaded.get(countryCode)?.[dataset.seriesId];
                 return item?.provenance ? `${item.def.activeSource} | release ${formatDate(item.provenance.releaseDate)}` : "";
               }
             }
@@ -1732,6 +1761,7 @@
   }
 
   function chartAxisLabel(def) {
+    if (state.chartSecondarySeries) return "Transformed values; compare direction and z/relative moves";
     if (state.chartTransform === "indexed") return "Index, first observation = 100";
     if (state.chartTransform === "yoy") return "YoY change (%)";
     if (state.chartTransform === "zscore") return "Z-score";
@@ -1974,13 +2004,16 @@
     const data = state.loaded.get(state.currentCountry) || {};
     const country = COUNTRIES[state.currentCountry];
     const engines = enginesFor(data);
+    const attention = attentionSummary(data, engines);
     setText(el("context-title"), country.name);
     setHtml(el("context-meta"), `
       <div><span>Region</span><b>${escapeHtml(country.region)}</b></div>
       <div><span>Active screen</span><b>${escapeHtml(state.activeModule)}</b></div>
       <div><span>Regime</span><b>${escapeHtml(regimeLabel(engines))}</b></div>
       <div><span>First market</span><b>${escapeHtml(firstMarket(engines))}</b></div>
+      <div><span>Attention</span><b class="${escapeHtml(attention.className)}">${escapeHtml(attention.label)}</b></div>
     `);
+    setText(el("status-right"), `${country.name} | ${attention.label}`);
 
     const provItems = Object.values(data)
       .filter((item) => item.stats)
@@ -2017,16 +2050,34 @@
     `;
   }
 
+  function attentionSummary(data, engines) {
+    const items = Object.values(data).filter((item) => item.stats);
+    const critical = items.filter((item) => attentionClass(item).includes("attention-critical")).length;
+    const stale = items.filter((item) => freshnessLabel(item.stats, item.def).tone === "bad").length;
+    const engineStress = Math.max(
+      100 - engines.inflation.score,
+      100 - engines.external.score,
+      100 - engines.banking.score,
+      100 - engines.liquidity.score
+    );
+    if (critical || engineStress >= 76) return { label: `${critical || 1} critical`, className: "attention-text-critical" };
+    if (stale) return { label: `${stale} stale`, className: "attention-text-stale" };
+    if (engineStress >= 62) return { label: "watch", className: "attention-text-watch" };
+    return { label: "normal", className: "attention-text-normal" };
+  }
+
   function parseCommand(input) {
     const raw = String(input || "").trim();
     if (!raw) return;
     const lower = raw.toLowerCase();
     const countries = findCountries(lower);
+    const requestedPeerSet = findPeerSet(lower);
     const seriesId = findSeries(lower);
 
     state.lastWarning = "";
+    if (requestedPeerSet) state.peerSet = requestedPeerSet;
 
-    if (lower.includes("compare") || lower.includes(" vs ") || lower.includes(" versus ")) {
+    if (!lower.includes("chart") && (lower.includes("compare") || lower.includes(" vs ") || lower.includes(" versus "))) {
       state.compareA = countries[0] || state.currentCountry;
       state.compareB = countries[1] || defaultPeerFor(state.compareA);
       state.compareSeries = seriesId || state.compareSeries;
@@ -2045,15 +2096,30 @@
       if (countries.length) state.chartCountries = countries.slice(0, 4);
       if (!state.chartCountries.length) state.chartCountries = [state.currentCountry];
       state.chartSeries = seriesId || state.chartSeries;
+      state.chartSecondarySeries = "";
       if (lower.includes("bis") || lower.includes("credit gap")) {
         state.chartSeries = "private_credit";
         state.lastWarning = "BIS credit gap is not live in this static build; showing World Bank private credit/GDP proxy with clear provenance.";
+      }
+      if (lower.includes("fx")) {
+        state.lastWarning = "Live FX is a market feed and is not fabricated in static mode; charting reserves as the official external-buffer series.";
+        if (lower.includes("reserve")) state.chartSeries = "reserves_months";
       }
       setModule("CHRT", false);
       return renderActiveModule();
     }
 
     if (countries[0]) state.currentCountry = countries[0];
+    if (requestedPeerSet && lower.includes("board")) {
+      state.domain = lower.includes("liquidity") || lower.includes("money") ? "liquidity" : state.domain;
+      setModule("MONITOR", false);
+      return renderActiveModule();
+    }
+    if (lower.includes("credit gap")) {
+      state.lastWarning = "BIS credit gap is not live in this static build; showing private credit/GDP as the transparent static proxy.";
+      setModule("LIQD", false);
+      return renderActiveModule();
+    }
     if (lower.includes("external")) setModule("EXTL", false);
     else if (lower.includes("liquidity") || lower.includes("money")) setModule("LIQD", false);
     else if (lower.includes("inflation") || lower.includes("cpi") || lower.includes("policy")) setModule("INFL", false);
@@ -2080,6 +2146,14 @@
         if (!acc.includes(match.code)) acc.push(match.code);
         return acc;
       }, []);
+  }
+
+  function findPeerSet(text) {
+    if (text.includes("central asia")) return "central_asia";
+    if (text.includes("south east asia") || text.includes("southeast asia") || text.includes("asean")) return "south_east_asia";
+    if (text.includes("g20 em") || text.includes("g-20 em")) return "g20_em";
+    if (text.includes("europe em")) return "europe_em";
+    return null;
   }
 
   function findSeries(text) {
@@ -2132,6 +2206,7 @@
     if (el("compare-b")) el("compare-b").value = state.compareB;
     if (el("compare-series")) el("compare-series").value = state.compareSeries;
     if (el("chart-series")) el("chart-series").value = state.chartSeries;
+    if (el("chart-secondary-series")) el("chart-secondary-series").value = state.chartSecondarySeries;
     if (el("chart-transform")) el("chart-transform").value = state.chartTransform;
   }
 
@@ -2147,6 +2222,7 @@
       .join("");
     setHtml(el("compare-series"), seriesOptions);
     setHtml(el("chart-series"), seriesOptions);
+    setHtml(el("chart-secondary-series"), `<option value="">No overlay</option>${seriesOptions}`);
     syncControls();
   }
 
@@ -2179,6 +2255,7 @@
       const templateButton = event.target.closest("[data-template]");
       if (templateButton) {
         state.chartSeries = templateButton.dataset.series;
+        state.chartSecondarySeries = "";
         state.chartTransform = templateButton.dataset.transform;
         state.chartCountries = templateButton.dataset.countries.split(",").filter(Boolean);
         syncControls();
@@ -2199,7 +2276,7 @@
         return;
       }
       if (event.target.closest("[data-action='export']")) {
-        exportWorkstation();
+        exportCountrySummary();
       }
     });
 
@@ -2235,6 +2312,10 @@
       state.chartSeries = event.target.value;
       renderActiveModule();
     });
+    el("chart-secondary-series")?.addEventListener("change", (event) => {
+      state.chartSecondarySeries = event.target.value;
+      renderActiveModule();
+    });
     el("chart-add-country")?.addEventListener("click", () => {
       if (!state.chartCountries.includes(state.currentCountry)) {
         state.chartCountries = [state.currentCountry, ...state.chartCountries].slice(0, 6);
@@ -2255,7 +2336,8 @@
       renderActiveModule();
     });
     el("save-workspace-btn")?.addEventListener("click", () => saveCurrentWorkspace());
-    el("export-workstation-btn")?.addEventListener("click", () => exportWorkstation());
+    el("export-workstation-btn")?.addEventListener("click", () => exportCountrySummary());
+    el("export-summary-btn")?.addEventListener("click", () => exportCountrySummary());
     el("chart-export-png")?.addEventListener("click", () => exportChartPng());
     el("copy-note-btn")?.addEventListener("click", () => copyText(el("note-draft")?.value || "", "Note copied."));
     el("copy-questions-btn")?.addEventListener("click", () => {
@@ -2320,25 +2402,258 @@
     }
   }
 
-  async function exportWorkstation() {
-    const root = el("export-root");
-    if (!root || typeof html2canvas === "undefined" || !window.jspdf) {
-      showToast("Export libraries are not available.");
-      return;
-    }
-    setLoadingStatus("Rendering workstation export...");
-    const canvas = await html2canvas(root, { scale: 2, backgroundColor: "#0d1113" });
-    const image = canvas.toDataURL("image/png");
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF("l", "pt", "a4");
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const ratio = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
-    const width = canvas.width * ratio;
-    const height = canvas.height * ratio;
-    pdf.addImage(image, "PNG", (pageWidth - width) / 2, 20, width, height);
-    pdf.save(`gme_${state.activeModule}_${state.currentCountry}.pdf`);
-    setLoadingStatus("Export complete");
+  async function exportCountrySummary() {
+    setLoadingStatus("Generating country summary export...");
+    await ensureCountryData(state.currentCountry, Array.from(new Set(SERIES_GROUPS.country.concat(SERIES_GROUPS.bank))));
+    const data = state.loaded.get(state.currentCountry) || {};
+    const engines = enginesFor(data);
+    const country = COUNTRIES[state.currentCountry];
+    const model = buildCountrySummaryModel(country, data, engines);
+    const html = renderCountrySummaryHtml(model);
+    const markdown = renderCountrySummaryMarkdown(model);
+    const slug = country.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+
+    downloadText(`gme_${slug}_country_summary.html`, "text/html;charset=utf-8", html);
+    downloadText(`gme_${slug}_country_summary.md`, "text/markdown;charset=utf-8", markdown);
+    if (el("note-draft")) el("note-draft").value = markdown;
+    setLoadingStatus(`Country summary exported for ${country.name}`);
+    showToast("Country summary exported as HTML and Markdown.");
+  }
+
+  function buildCountrySummaryModel(country, data, engines) {
+    const bank = bankingScore(data);
+    const points = pressureItems(data, engines).slice(0, 5);
+    const channels = marketChannels(engines).sort((a, b) => b.score - a.score);
+    const vulnerabilities = stressLanes(data, engines).slice(0, 4);
+    const questions = nextQuestions(data, engines).slice(0, 4);
+    const research = researchMatches(country.iso2, state.domain, engines).slice(0, 4);
+    const metrics = [
+      "gdp_growth",
+      "inflation",
+      "current_account",
+      "reserves_months",
+      "broad_money_growth",
+      "private_credit",
+      "bank_npl",
+      "bank_capital_assets",
+      "bank_liquid_reserves"
+    ]
+      .map((id) => data[id])
+      .filter(Boolean);
+
+    const takeawayLines = [
+      `${country.name} screens as ${regimeLabel(engines).toLowerCase()}.`,
+      `The dominant investor channel is ${channels[0]?.name || "mixed"}, with a pressure score of ${channels[0]?.score ?? "--"}/100.`,
+      `Banking stability is ${bank.stabilityScore}/100 with ${bank.coverage}% macroprudential coverage in the current static adapter.`,
+      `The main monitor-next item is ${vulnerabilities[0]?.label || "data freshness"}: ${vulnerabilities[0]?.text || "verify releases and source coverage before investment use."}`
+    ];
+
+    return {
+      country,
+      date: formatLongDate(CURRENT_DATE),
+      title: `${country.name} Macro And Banking Snapshot`,
+      subtitle: "Allocator-ready country summary generated from the Global Macro Engine",
+      regime: regimeLabel(engines),
+      engines,
+      bank,
+      points,
+      channels,
+      vulnerabilities,
+      questions,
+      research,
+      metrics,
+      takeaways: takeawayLines,
+      provenance: metrics.map((item) => ({
+        series: item.def.label,
+        value: item.stats ? item.stats.formatted : "No observation",
+        period: item.stats?.latest?.year || "No observation",
+        source: item.def.activeSource,
+        bestSource: item.def.bestSource,
+        frequency: item.def.frequency,
+        releaseDate: formatDate(item.provenance?.releaseDate),
+        status: item.def.status,
+        freshness: freshnessLabel(item.stats, item.def).label,
+        interpolated: "No"
+      }))
+    };
+  }
+
+  function renderCountrySummaryHtml(model) {
+    const metricRows = model.metrics.map((item) => {
+      const stats = item.stats;
+      const fresh = freshnessLabel(stats, item.def);
+      return `
+        <tr>
+          <td>${escapeHtml(item.def.label)}</td>
+          <td>${escapeHtml(stats ? stats.formatted : "No observation")}</td>
+          <td>${escapeHtml(stats?.latest?.year || "No observation")}</td>
+          <td>${escapeHtml(stats ? compact(stats.z, 2) : "--")}</td>
+          <td>${escapeHtml(item.def.activeSource)}</td>
+          <td>${escapeHtml(fresh.label)}</td>
+        </tr>
+      `;
+    }).join("");
+
+    const provenanceRows = model.provenance.map((row) => `
+      <tr>
+        <td>${escapeHtml(row.series)}</td>
+        <td>${escapeHtml(row.source)}</td>
+        <td>${escapeHtml(row.frequency)}</td>
+        <td>${escapeHtml(row.releaseDate)}</td>
+        <td>${escapeHtml(row.status)}</td>
+        <td>${escapeHtml(row.interpolated)}</td>
+        <td>${escapeHtml(row.freshness)}</td>
+      </tr>
+    `).join("");
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(model.title)}</title>
+  <style>
+    body { margin: 0; background: #f3f0e8; color: #171717; font-family: Arial, Helvetica, sans-serif; }
+    .page { width: 920px; min-height: 1180px; margin: 24px auto; background: #fff; padding: 36px 44px 44px; box-shadow: 0 12px 30px rgba(0,0,0,.18); }
+    .mast { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: start; border-bottom: 8px solid #7d641f; padding-bottom: 10px; }
+    .brand { font-weight: 700; font-size: 18px; line-height: 1.05; }
+    .desk { text-align: right; font-size: 12px; color: #5f5a4c; }
+    .eyebrow { margin-top: 18px; color: #7d641f; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    h1 { margin: 8px 0 4px; font-size: 28px; line-height: 1.08; }
+    .subtitle { margin: 0 0 14px; font-size: 13px; color: #4f4f4f; }
+    .meta { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid #cfcfcf; border-bottom: 1px solid #cfcfcf; margin: 14px 0; }
+    .meta div { padding: 8px 10px; border-right: 1px solid #dedede; }
+    .meta div:last-child { border-right: 0; }
+    .meta span { display: block; color: #696969; font-size: 10px; text-transform: uppercase; }
+    .meta b { display: block; margin-top: 3px; font-size: 13px; }
+    .box { border: 1px solid #d7c9a4; background: #fffaf0; padding: 10px 12px; margin: 14px 0; }
+    .box h2, .section h2 { margin: 0 0 8px; font-size: 15px; color: #6f581d; }
+    ul { margin: 0; padding-left: 18px; }
+    li { margin: 4px 0; font-size: 12px; line-height: 1.35; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .section { margin-top: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th { text-align: left; background: #efefef; color: #343434; font-size: 10px; text-transform: uppercase; }
+    th, td { border-bottom: 1px solid #dddddd; padding: 6px 7px; vertical-align: top; }
+    .pill { display: inline-block; border: 1px solid #bba25a; padding: 2px 6px; margin: 0 4px 4px 0; font-size: 11px; background: #fbf7eb; }
+    .note { color: #575757; font-size: 10px; line-height: 1.35; }
+    .footer { margin-top: 20px; border-top: 1px solid #cfcfcf; padding-top: 8px; color: #666; font-size: 10px; }
+    @media print { body { background: #fff; } .page { margin: 0; box-shadow: none; width: auto; } }
+  </style>
+</head>
+<body>
+  <article class="page">
+    <header class="mast">
+      <div class="brand">Cordoba<br />Research Group</div>
+      <div class="desk">Global Macro Engine<br />Country Summary<br />${escapeHtml(model.date)}</div>
+    </header>
+    <div class="eyebrow">Global Macro Strategy</div>
+    <h1>${escapeHtml(model.title)}</h1>
+    <p class="subtitle">${escapeHtml(model.subtitle)}</p>
+    <div class="meta">
+      <div><span>Country</span><b>${escapeHtml(model.country.name)}</b></div>
+      <div><span>Region</span><b>${escapeHtml(model.country.region)}</b></div>
+      <div><span>Regime</span><b>${escapeHtml(model.regime)}</b></div>
+      <div><span>First market</span><b>${escapeHtml(model.channels[0]?.name || "Mixed")}</b></div>
+    </div>
+    <section class="box">
+      <h2>Key Takeaways</h2>
+      <ul>${model.takeaways.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>
+    </section>
+    <section class="section">
+      <h2>Macro And Banking Scoreboard</h2>
+      <table>
+        <thead><tr><th>Metric</th><th>Latest</th><th>Period</th><th>Z-score</th><th>Source</th><th>Freshness</th></tr></thead>
+        <tbody>${metricRows}</tbody>
+      </table>
+    </section>
+    <section class="grid">
+      <div class="section">
+        <h2>Markets That Care First</h2>
+        ${model.channels.map((channel) => `<span class="pill">${escapeHtml(channel.name)} ${escapeHtml(String(channel.score))}/100</span>`).join("")}
+        <ul>${model.channels.slice(0, 3).map((channel) => `<li>${escapeHtml(channel.text)}</li>`).join("")}</ul>
+      </div>
+      <div class="section">
+        <h2>Largest Vulnerabilities</h2>
+        <ul>${model.vulnerabilities.map((item) => `<li><b>${escapeHtml(item.label)}:</b> ${escapeHtml(item.text)}</li>`).join("")}</ul>
+      </div>
+    </section>
+    <section class="grid">
+      <div class="section">
+        <h2>Banking System Read</h2>
+        <p class="note">${escapeHtml(bankNarrative(model.country, state.loaded.get(model.country.iso2) || {}, model.bank))}</p>
+      </div>
+      <div class="section">
+        <h2>Monitor Next</h2>
+        <ul>${model.questions.map((item) => `<li>${escapeHtml(item.text)}</li>`).join("")}</ul>
+      </div>
+    </section>
+    <section class="section">
+      <h2>Research Handoff</h2>
+      <ul>${model.research.length ? model.research.map((note) => `<li>${escapeHtml(note.title)} - ${escapeHtml(note.url)}</li>`).join("") : "<li>No directly mapped Cordoba note in the current library mapping.</li>"}</ul>
+    </section>
+    <section class="section">
+      <h2>Provenance</h2>
+      <table>
+        <thead><tr><th>Series</th><th>Source</th><th>Frequency</th><th>Release</th><th>Status</th><th>Interpolated</th><th>Freshness</th></tr></thead>
+        <tbody>${provenanceRows}</tbody>
+      </table>
+      <p class="note">Static GitHub Pages mode: direct official and institutional APIs are used where feasible. Live market prices, CDS, curves and server-side push alerts are not fabricated.</p>
+    </section>
+    <footer class="footer">Generated by Cordoba Research Group Global Macro Engine. This is a screening and research handoff document, not investment advice.</footer>
+  </article>
+</body>
+</html>`;
+  }
+
+  function renderCountrySummaryMarkdown(model) {
+    const lines = [];
+    lines.push(`# ${model.title}`);
+    lines.push(`Cordoba Research Group | Global Macro Engine | ${model.date}`);
+    lines.push("");
+    lines.push(`**Regime:** ${model.regime}`);
+    lines.push(`**First market:** ${model.channels[0]?.name || "Mixed"}`);
+    lines.push("");
+    lines.push("## Key Takeaways");
+    model.takeaways.forEach((line) => lines.push(`- ${line}`));
+    lines.push("");
+    lines.push("## Markets That Care First");
+    model.channels.slice(0, 4).forEach((channel) => lines.push(`- ${channel.name} (${channel.score}/100): ${channel.text}`));
+    lines.push("");
+    lines.push("## Vulnerabilities");
+    model.vulnerabilities.forEach((item) => lines.push(`- ${item.label}: ${item.text}`));
+    lines.push("");
+    lines.push("## Metrics And Provenance");
+    lines.push("| Series | Latest | Period | Source | Frequency | Freshness |");
+    lines.push("|---|---:|---:|---|---|---|");
+    model.provenance.forEach((row) => lines.push(`| ${row.series} | ${row.value} | ${row.period} | ${row.source} | ${row.frequency} | ${row.freshness} |`));
+    lines.push("");
+    lines.push("## Monitor Next");
+    model.questions.forEach((item) => lines.push(`- ${item.text}`));
+    lines.push("");
+    lines.push("Static-site note: live market prices, CDS, curves and server-side push alerts are not fabricated in this GitHub Pages build.");
+    return lines.join("\n");
+  }
+
+  function downloadText(filename, mimeType, text) {
+    const blob = new Blob([text], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function formatLongDate(date) {
+    return date.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      timeZone: "Europe/London"
+    });
   }
 
   function exportChartPng() {
