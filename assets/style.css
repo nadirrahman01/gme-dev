@@ -155,13 +155,6 @@ a {
   color: var(--green) !important;
 }
 
-.brand-subtitle {
-  margin-top: 2px;
-  font-size: 10px;
-  color: var(--muted);
-  text-transform: uppercase;
-}
-
 .command-bar {
   height: 34px;
   display: grid;
@@ -357,7 +350,6 @@ a {
 }
 
 .screen-code,
-.panel-kicker,
 .context-kicker {
   color: var(--gold-soft);
   font-family: var(--mono);
@@ -1177,7 +1169,7 @@ a {
 
 #status-center {
   text-align: center;
-  color: var(--gold-soft);
+  color: var(--muted);
 }
 
 #status-right {
