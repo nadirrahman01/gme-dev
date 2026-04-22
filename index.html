@@ -13,8 +13,7 @@
 <body>
   <div class="terminal-shell" id="gme-app">
     <header class="topbar">
-      <div class="brand-block" aria-label="Cordoba Research Group">
-        <a class="brand-mark" href="https://cordobarg.com/" target="_blank" rel="noopener noreferrer">CRG</a>
+      <div class="brand-block text-brand" aria-label="Cordoba Research Group">
         <div>
           <div class="brand-title">Global Macro Engine</div>
           <div class="brand-subtitle">Institutional macro workstation</div>
@@ -36,7 +35,7 @@
       <div class="top-actions">
         <select id="country-select" class="terminal-select" aria-label="Country"></select>
         <button class="terminal-button" id="save-workspace-btn" type="button">Save</button>
-        <button class="terminal-button primary" id="export-workstation-btn" type="button">Export</button>
+        <button class="terminal-button primary" id="export-workstation-btn" type="button">Summary</button>
       </div>
     </header>
 
@@ -47,7 +46,7 @@
       <button class="workflow-step" type="button" data-module="BANK">4 Diagnose</button>
       <button class="workflow-step" type="button" data-module="CHRT">5 Chart</button>
       <button class="workflow-step" type="button" data-module="NOTE">6 Write</button>
-      <button class="workflow-step" type="button" data-action="export">7 Export</button>
+      <button class="workflow-step" type="button" data-action="export">7 Summary</button>
     </div>
 
     <div class="terminal-body">
@@ -487,6 +486,7 @@
                 </div>
                 <div class="chart-controls">
                   <select id="chart-series" class="terminal-select compact"></select>
+                  <select id="chart-secondary-series" class="terminal-select compact"></select>
                   <select id="chart-transform" class="terminal-select compact">
                     <option value="level">Level</option>
                     <option value="indexed">Indexed</option>
@@ -588,6 +588,7 @@
                   <h2>Macro note handoff</h2>
                 </div>
                 <div class="note-actions">
+                  <button class="terminal-button primary" id="export-summary-btn" type="button">Country summary</button>
                   <button class="terminal-button" id="copy-note-btn" type="button">Copy note</button>
                   <button class="terminal-button" id="copy-questions-btn" type="button">Copy questions</button>
                 </div>
